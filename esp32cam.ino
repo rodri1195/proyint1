@@ -79,26 +79,10 @@ h1 { color: #ff4444; }
   <p id="shots">Disparos restantes: 40</p>
   <p id="lives">Vidas restantes: 3</p>
 
-  <div class="motor-control">
-    <div class="motor-card">
-      <h3>Motor 1</h3>
-      <input id="m1range" class="range" type="range" min="-255" max="255" value="0" oninput="m1update(this.value)">
-      <div class="small">Valor: <span id="m1val">0</span></div>
-      <button class="btn stop" onclick="m1send(0)">Detener</button>
-    </div>
-
-    <div class="motor-card">
-      <h3>Motor 2</h3>
-      <input id="m2range" class="range" type="range" min="-255" max="255" value="0" oninput="m2update(this.value)">
-      <div class="small">Valor: <span id="m2val">0</span></div>
-      <button class="btn stop" onclick="m2send(0)">Detener</button>
-    </div>
-  </div>
-
   <div class="move-pad">
     <button class="move-btn" onclick="moveCmd('FWD')">Adelante</button>
-    <button class="move-btn" onclick="moveCmd('LEFT')">Izquierda</button>
-    <button class="move-btn" onclick="moveCmd('RIGHT')">Derecha</button>
+    <button class="move-btn" onclick="moveCmd('LEFT')">Derecha</button>
+    <button class="move-btn" onclick="moveCmd('RIGHT')">Izquierda</button>
     <button class="move-btn" onclick="moveCmd('BACK')">Atrás</button>
     <button class="move-btn stop-all" onclick="moveCmd('STOP')">Detener</button>
   </div>
@@ -436,3 +420,4 @@ void loop() {
   }
   delay(10);
 }
+
