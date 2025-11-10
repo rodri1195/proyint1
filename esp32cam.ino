@@ -237,11 +237,27 @@ static esp_err_t fire_handler(httpd_req_t *req) {
 
   String response = "";
   unsigned long start = millis();
+
+  // Leer todas las líneas que lleguen durante 1s y actualizar estado inmediatamente.
   while (millis() - start < 1000) {
-    if (Serial2.available()) {
-      response = Serial2.readStringUntil('\n');
-      response.trim();
-      break;
+    while (Serial2.available()) {
+      String line = Serial2.readStringUntil('\n');
+      line.trim();
+      if (line.length() == 0) continue;
+
+      // Guardar última línea recibida y acumular respuesta para el cliente
+      lastSerialLine = line;
+      if (response.length() > 0) response += "|";
+      response += line;
+
+      // Parsear y actualizar variables compartidas
+      if (line.startsWith("SHOTS:")) {
+        currentShots = line.substring(6).toInt();
+      } else if (line.startsWith("LIVES:")) {
+        currentLives = line.substring(6).toInt();
+      } else if (line == "NO_SHOTS") {
+        currentShots = 0;
+      }
     }
     delay(1);
   }
@@ -420,4 +436,6 @@ void loop() {
   }
   delay(10);
 }
+
+
 
