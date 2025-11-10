@@ -142,7 +142,7 @@ void loop() {
   Serial.println(voltage, 3);
 
   unsigned long now = millis();
-  if (voltage > 1.0 && lives > 0) {
+  if (voltage > 0.1 && lives > 0) {
     if (now - lastLifeReductionTime >= lifeReductionInterval) {
       // reducir vida
       lives--;
@@ -169,3 +169,4 @@ void loop() {
 
   delay(100);
 }
+
