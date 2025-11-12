@@ -125,13 +125,38 @@ void loop() {
       }
     }
     // Comandos para motores: M1:<val> y M2:<val>
-    else if (received.startsWith("M1:")) {
-      int v = received.substring(3).toInt(); // -255..255
-      motorSet(MOTOR_CH_A, M1_IN1, M1_IN2, v);
-    } else if (received.startsWith("M2:")) {
-      int v = received.substring(3).toInt();
-      motorSet(MOTOR_CH_B, M2_IN1, M2_IN2, v);
-    }
+    else if (received.startsWith("M1:") || received.startsWith("M2:")) {
+  int v1 = 0, v2 = 0;
+
+  // Leer ambos valores de motor (pueden venir separados)
+  if (received.startsWith("M1:")) {
+    v1 = received.substring(3).toInt();
+    while (!Serial2.available()) delay(1);
+    String next = Serial2.readStringUntil('\n');
+    next.trim();
+    if (next.startsWith("M2:")) v2 = next.substring(3).toInt();
+  } else {
+    v2 = received.substring(3).toInt();
+    while (!Serial2.available()) delay(1);
+    String next = Serial2.readStringUntil('\n');
+    next.trim();
+    if (next.startsWith("M1:")) v1 = next.substring(3).toInt();
+  }
+
+  // --- Movimiento normal ---
+  motorSet(MOTOR_CH_A, M1_IN1, M1_IN2, v1);
+  motorSet(MOTOR_CH_B, M2_IN1, M2_IN2, v2);
+
+  // --- Efecto: solo adelante o atrás ---
+  if ((v1 > 0 && v2 > 0) || (v1 < 0 && v2 < 0)) {
+    // Se mueve adelante o atrás
+    delay(300);  // ← tiempo del movimiento (ajustalo a gusto)
+    motorSet(MOTOR_CH_A, M1_IN1, M1_IN2, 0);
+    motorSet(MOTOR_CH_B, M2_IN1, M2_IN2, 0);
+  }
+}
+
+
   }
 
   // Medición de voltaje LDR
@@ -169,4 +194,5 @@ void loop() {
 
   delay(100);
 }
+
 
