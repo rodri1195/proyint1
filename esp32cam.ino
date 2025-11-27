@@ -76,8 +76,8 @@ h1 { color: #ff4444; }
 
   <div class="move-pad">
     <button class="move-btn" onclick="moveCmd('FWD')">Izquierda</button>
-    <button class="move-btn" onclick="moveCmd('LEFT')">Adelante</button>
-    <button class="move-btn" onclick="moveCmd('RIGHT')">Atras</button>
+    <button class="move-btn" onclick="moveCmd('LEFT')">Atras</button>
+    <button class="move-btn" onclick="moveCmd('RIGHT')">Adelante</button>
     <button class="move-btn" onclick="moveCmd('BACK')">Derecha</button>
     <button class="move-btn stop-all" onclick="moveCmd('STOP')">Detener</button>
   </div>
@@ -343,6 +343,7 @@ void loop() {
   }
   delay(5);
 }
+
 
 
 
