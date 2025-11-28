@@ -1,0 +1,9 @@
+esta : 
+config.frame_size = FRAMESIZE_QVGA;
+config.jpeg_quality = 12;
+config.fb_count = 1;
+precisamos: 
+
+config.jpeg_quality = 15;   // Menos procesador
+config.fb_count = 2;        // Mejor estabilidad del stream
+
