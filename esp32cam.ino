@@ -321,6 +321,11 @@ void setup() {
     return;
   }
 
+  // --- ROTAR IMAGEN 180 GRADOS ---
+  sensor_t * s = esp_camera_sensor_get();
+  s->set_vflip(s, 1);     // Voltea la imagen verticalmente (rotación 180°)
+  // s->set_hmirror(s, 1); // (Opcional) Voltea la imagen horizontalmente
+
   WiFi.begin(ssid, password);
   Serial.print("Conectando a WiFi");
   while (WiFi.status() != WL_CONNECTED) {
