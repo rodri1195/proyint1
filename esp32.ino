@@ -1,19 +1,26 @@
-//esp 32 :
+// ======================
+// ===== ESP32 NORMAL ====
+// ======================
+
 #define RXD2 16   // RX del ESP32 normal conectado al TX (15) de la ESP32-CAM
 #define TXD2 17   // TX del ESP32 normal conectado al RX (14) de la ESP32-CAM
-#define LASER_PIN 4     // Pin conectado al módulo láser KY-008
-#define LED_PIN 2       // LED de depuración
-#define LED_SENSOR_PIN 23 // LED que indica nivel de voltaje LDR y estado de vidas
-#define LDR_PIN1 32      // Nodo entre LDR y resistencia fija
+
+#define LASER_PIN 4     // Láser KY-008
+#define LED_PIN 2       // LED depuración
+#define LED_SENSOR_PIN 23 // LED que indica impacto
+
+// LDRs
+#define LDR_PIN1 32
 #define LDR_PIN2 33
 #define LDR_PIN3 34
 #define LDR_PIN4 35
 #define LDR_PIN5 22
+#define LDR_PIN6 25
 
-// --- Pines y configuración para L298N (dos motores) ---
+// Pines L298N
 #define M1_IN1 12
 #define M1_IN2 13
-#define M1_EN  25
+#define M1_EN  21
 
 #define M2_IN1 14
 #define M2_IN2 27
@@ -24,58 +31,68 @@
 #define MOTOR_CH_A 1
 #define MOTOR_CH_B 2
 
+// Disparos
 #define MAX_SHOTS 40
 int shotsRemaining = MAX_SHOTS;
-int lives = 3; // Vidas iniciales
+
+// NUEVO: ahora contamos impactos (tiros recibidos)
+int shotsReceived = 0;
 
 const float VREF = 3.3;
 const int ADC_RES = 4095;
 
 unsigned long lastLifeReductionTime = 0;
-const unsigned long lifeReductionInterval = 500; // Tiempo mínimo entre reducciones (ms)
+const unsigned long lifeReductionInterval = 500;
 
-// Control simple de motor con L298N. speed en rango -255..255
+
+// =========================
+// ======= MOTORES =========
+// =========================
 void motorSet(int ch, int in1, int in2, int speed) {
-  // seguridad: limitar rango
   speed = constrain(speed, -255, 255);
+
   if (speed == 0) {
     digitalWrite(in1, LOW);
     digitalWrite(in2, LOW);
     ledcWrite(ch, 0);
     return;
   }
+
   if (speed > 0) {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    ledcWrite(ch, constrain(speed, 0, 255));
+    ledcWrite(ch, speed);
   } else {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    ledcWrite(ch, constrain(-speed, 0, 255));
+    ledcWrite(ch, -speed);
   }
-  // confirmar por Serial2 (opcional, útil para debug/UI)
-  if (ch == MOTOR_CH_A) {
-    Serial2.println("M1:OK");
-  } else if (ch == MOTOR_CH_B) {
-    Serial2.println("M2:OK");
-  }
+
+  if (ch == MOTOR_CH_A) Serial2.println("M1:OK");
+  else Serial2.println("M2:OK");
+
   Serial2.flush();
 }
 
+
+// =========================
+// ======== SETUP ==========
+// =========================
 void setup() {
   Serial.begin(115200);
   Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
 
-  // Configurar PWM para el pin del láser
-  ledcSetup(0, 5000, 8); // Canal 0, frecuencia 5kHz, resolución 8 bits
-  ledcAttachPin(LASER_PIN, 0); // Asocia el pin del láser al canal 0
-  ledcWrite(0, 0); // Apaga el láser inicialmente
+  // PWM para láser
+  ledcSetup(0, 5000, 8);
+  ledcAttachPin(LASER_PIN, 0);
+  ledcWrite(0, 0);
 
-  // --- Configurar PWM y pines para motores ---
+  // PWM motores
   ledcSetup(MOTOR_CH_A, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
   ledcSetup(MOTOR_CH_B, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
   ledcAttachPin(M1_EN, MOTOR_CH_A);
   ledcAttachPin(M2_EN, MOTOR_CH_B);
+
   ledcWrite(MOTOR_CH_A, 0);
   ledcWrite(MOTOR_CH_B, 0);
 
@@ -83,10 +100,6 @@ void setup() {
   pinMode(M1_IN2, OUTPUT);
   pinMode(M2_IN1, OUTPUT);
   pinMode(M2_IN2, OUTPUT);
-  digitalWrite(M1_IN1, LOW);
-  digitalWrite(M1_IN2, LOW);
-  digitalWrite(M2_IN1, LOW);
-  digitalWrite(M2_IN2, LOW);
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -96,278 +109,120 @@ void setup() {
 
   pinMode(LDR_PIN1, INPUT);
   pinMode(LDR_PIN2, INPUT);
-pinMode(LDR_PIN3, INPUT);
+  pinMode(LDR_PIN3, INPUT);
   pinMode(LDR_PIN4, INPUT);
   pinMode(LDR_PIN5, INPUT);
+  pinMode(LDR_PIN6, INPUT);
 
-  Serial.println("ESP32 Normal lista (Láser + Sensor LDR + Motores)");
+  Serial.println("ESP32 lista (Láser + Sensores + Motores)");
 }
 
+
+// =========================
+// ========= LOOP ==========
+// =========================
 void loop() {
-  // Comunicación con ESP32-CAM
+
+  // ------------------------
+  // RECIBIR COMANDOS CAM
+  // ------------------------
   if (Serial2.available()) {
+
     String received = Serial2.readStringUntil('\n');
     received.trim();
+
+    // ---- Disparo ----
     if (received == "FIRE") {
-      // Permitir disparar solo si quedan vidas
-      if (lives > 0) {
-        if (shotsRemaining > 0) {
-          ledcWrite(0, 255);
-          digitalWrite(LED_PIN, HIGH);
-          delay(50);
-          ledcWrite(0, 0);
-          digitalWrite(LED_PIN, LOW);
-          shotsRemaining--;
-          Serial2.print("SHOTS:");
-          Serial2.println(shotsRemaining);
-          Serial2.flush();
-        } else {
-          Serial2.println("NO_SHOTS");
-          Serial2.flush();
-        }
+
+      if (shotsRemaining > 0) {
+        ledcWrite(0, 255);
+        digitalWrite(LED_PIN, HIGH);
+        delay(50);
+        ledcWrite(0, 0);
+        digitalWrite(LED_PIN, LOW);
+
+        shotsRemaining--;
+
+        Serial2.print("SHOTS:");
+        Serial2.println(shotsRemaining);
+        Serial2.flush();
       } else {
-        // No quedan vidas -> no permitir disparar
-        Serial2.print("LIVES:");
-        Serial2.println(0);
+        Serial2.println("NO_SHOTS");
+      }
+    }
+
+    // ---- Movimiento motores ----
+    else if (received.startsWith("M1:") || received.startsWith("M2:")) {
+
+      int v1 = 0, v2 = 0;
+
+      if (received.startsWith("M1:")) {
+        v1 = received.substring(3).toInt();
+        while (!Serial2.available()) delay(1);
+        String next = Serial2.readStringUntil('\n');
+        next.trim();
+        if (next.startsWith("M2:")) v2 = next.substring(3).toInt();
+      } else {
+        v2 = received.substring(3).toInt();
+        while (!Serial2.available()) delay(1);
+        String next = Serial2.readStringUntil('\n');
+        next.trim();
+        if (next.startsWith("M1:")) v1 = next.substring(3).toInt();
+      }
+
+      motorSet(MOTOR_CH_A, M1_IN1, M1_IN2, v1);
+      motorSet(MOTOR_CH_B, M2_IN1, M2_IN2, v2);
+
+      if ((v1 > 0 && v2 > 0) || (v1 < 0 && v2 < 0)) {
+        delay(300);
+        motorSet(MOTOR_CH_A, M1_IN1, M1_IN2, 0);
+        motorSet(MOTOR_CH_B, M2_IN1, M2_IN2, 0);
+      }
+    }
+  }
+
+
+  // -----------------------------------
+  // LECTURA DE LOS 6 LDR (impactos)
+  // -----------------------------------
+  const int LDR_PINS[6] = { LDR_PIN1, LDR_PIN2, LDR_PIN3, LDR_PIN4, LDR_PIN5, LDR_PIN6 };
+
+  unsigned long now = millis();
+
+  for (int i = 0; i < 6; i++) {
+
+    int raw = analogRead(LDR_PINS[i]);
+    float voltage = (raw * VREF) / ADC_RES;
+
+    Serial.print("Voltaje LDR ");
+    Serial.print(i + 1);
+    Serial.print(": ");
+    Serial.println(voltage, 3);
+
+    // ------- IMPACTO -------
+    if (voltage > 1) {
+
+      if (now - lastLifeReductionTime >= lifeReductionInterval) {
+
+        shotsReceived++;   // SUMA TIRO RECIBIDO
+
+        lastLifeReductionTime = now;
+
+        // flash LED
+        digitalWrite(LED_SENSOR_PIN, HIGH);
+        delay(100);
+        digitalWrite(LED_SENSOR_PIN, LOW);
+
+        // Enviar actualización
+        Serial2.print("SHOTS_TAKEN:");
+        Serial2.println(shotsReceived);
         Serial2.flush();
       }
     }
-    // Comandos para motores: M1:<val> y M2:<val>
-    else if (received.startsWith("M1:") || received.startsWith("M2:")) {
-  int v1 = 0, v2 = 0;
-
-  // Leer ambos valores de motor (pueden venir separados)
-  if (received.startsWith("M1:")) {
-    v1 = received.substring(3).toInt();
-    while (!Serial2.available()) delay(1);
-    String next = Serial2.readStringUntil('\n');
-    next.trim();
-    if (next.startsWith("M2:")) v2 = next.substring(3).toInt();
-  } else {
-    v2 = received.substring(3).toInt();
-    while (!Serial2.available()) delay(1);
-    String next = Serial2.readStringUntil('\n');
-    next.trim();
-    if (next.startsWith("M1:")) v1 = next.substring(3).toInt();
   }
-
-  // --- Movimiento normal ---
-  motorSet(MOTOR_CH_A, M1_IN1, M1_IN2, v1);
-  motorSet(MOTOR_CH_B, M2_IN1, M2_IN2, v2);
-
-  // --- Efecto: solo adelante o atrás ---
-  if ((v1 > 0 && v2 > 0) || (v1 < 0 && v2 < 0)) {
-    // Se mueve adelante o atrás
-    delay(300);  // ← tiempo del movimiento (ajustalo a gusto)
-    motorSet(MOTOR_CH_A, M1_IN1, M1_IN2, 0);
-    motorSet(MOTOR_CH_B, M2_IN1, M2_IN2, 0);
-  }
-}
-
-
-  }
-
-  // Medición de voltaje LDR
-  int raw1 = analogRead(LDR_PIN1);
-  float voltage1 = (raw1 * VREF) / ADC_RES;
-
-  Serial.print("Voltaje LDR: ");
-  Serial.println(voltage1, 3);
-
-  unsigned long now1 = millis();
-  if (voltage1 > 1 && lives > 0) {
-    if (now1 - lastLifeReductionTime >= lifeReductionInterval) {
-      // reducir vida
-      lives--;
-      lastLifeReductionTime = now1;
-      // indicar impacto con LED_SENSOR
-      digitalWrite(LED_SENSOR_PIN, HIGH);
-      delay(100);
-      digitalWrite(LED_SENSOR_PIN, LOW);
-      // enviar estado al ESP32-CAM
-      Serial2.print("LIVES:");
-      Serial2.println(lives);
-      Serial2.flush();
-
-      // si vidas llegan a 0, prender láser permanentemente
-      if (lives == 0) {
-        ledcWrite(0, 255); // láser encendido permanentemente
-        Serial.println("Vidas 0: Láser encendido");
-      }
-    }
-  } else {
-    // no hay impacto: mantener LED apagado si aún hay vidas
-    if (lives > 0) digitalWrite(LED_SENSOR_PIN, LOW);
-  }
-
-
-  int raw2 = analogRead(LDR_PIN2);
-  float voltage2 = (raw2 * VREF) / ADC_RES;
-
-  Serial.print("Voltaje LDR: ");
-  Serial.println(voltage2, 3);
-
-  unsigned long now2 = millis();
-  if (voltage2 > 1 && lives > 0) {
-    if (now2 - lastLifeReductionTime >= lifeReductionInterval) {
-      // reducir vida
-      lives--;
-      lastLifeReductionTime = now2;
-      // indicar impacto con LED_SENSOR
-      digitalWrite(LED_SENSOR_PIN, HIGH);
-      delay(100);
-      digitalWrite(LED_SENSOR_PIN, LOW);
-      // enviar estado al ESP32-CAM
-      Serial2.print("LIVES:");
-      Serial2.println(lives);
-      Serial2.flush();
-
-      // si vidas llegan a 0, prender láser permanentemente
-      if (lives == 0) {
-        ledcWrite(0, 255); // láser encendido permanentemente
-        Serial.println("Vidas 0: Láser encendido");
-      }
-    }
-  } else {
-    // no hay impacto: mantener LED apagado si aún hay vidas
-    if (lives > 0) digitalWrite(LED_SENSOR_PIN, LOW);
-  }
-
-
-  int raw3 = analogRead(LDR_PIN3);
-  float voltage3 = (raw3 * VREF) / ADC_RES;
-
-  Serial.print("Voltaje LDR: ");
-  Serial.println(voltage3, 3);
-
-  unsigned long now3 = millis();
-  if (voltage3 > 1 && lives > 0) {
-    if (now3 - lastLifeReductionTime >= lifeReductionInterval) {
-      // reducir vida
-      lives--;
-      lastLifeReductionTime = now3;
-      // indicar impacto con LED_SENSOR
-      digitalWrite(LED_SENSOR_PIN, HIGH);
-      delay(100);
-      digitalWrite(LED_SENSOR_PIN, LOW);
-      // enviar estado al ESP32-CAM
-      Serial2.print("LIVES:");
-      Serial2.println(lives);
-      Serial2.flush();
-
-      // si vidas llegan a 0, prender láser permanentemente
-      if (lives == 0) {
-        ledcWrite(0, 255); // láser encendido permanentemente
-        Serial.println("Vidas 0: Láser encendido");
-      }
-    }
-  } else {
-    // no hay impacto: mantener LED apagado si aún hay vidas
-    if (lives > 0) digitalWrite(LED_SENSOR_PIN, LOW);
-  }
-
-
-  int raw4 = analogRead(LDR_PIN4);
-  float voltage4 = (raw4 * VREF) / ADC_RES;
-
-  Serial.print("Voltaje LDR: ");
-  Serial.println(voltage4, 3);
-
-  unsigned long now4 = millis();
-  if (voltage4 > 1 && lives > 0) {
-   if (now4 - lastLifeReductionTime >= lifeReductionInterval) {
-      // reducir vida
-      lives--;
-      lastLifeReductionTime = now4;
-      // indicar impacto con LED_SENSOR
-      digitalWrite(LED_SENSOR_PIN, HIGH);
-      delay(100);
-      digitalWrite(LED_SENSOR_PIN, LOW);
-      // enviar estado al ESP32-CAM
-      Serial2.print("LIVES:");
-      Serial2.println(lives);
-      Serial2.flush();
-
-      // si vidas llegan a 0, prender láser permanentemente
-      if (lives == 0) {
-        ledcWrite(0, 255); // láser encendido permanentemente
-        Serial.println("Vidas 0: Láser encendido");
-      }
-    }
-  } else {
-    // no hay impacto: mantener LED apagado si aún hay vidas
-    if (lives > 0) digitalWrite(LED_SENSOR_PIN, LOW);
-  }
-
-  int raw5 = analogRead(LDR_PIN5);
-  float voltage5 = (raw5 * VREF) / ADC_RES;
-
-  Serial.print("Voltaje LDR: ");
-  Serial.println(voltage5, 3);
-
-  unsigned long now5 = millis();
-  if (voltage5 > 1 && lives > 0) {
-    if (now5 - lastLifeReductionTime >= lifeReductionInterval) {
-      // reducir vida
-      lives--;
-      lastLifeReductionTime = now5;
-      // indicar impacto con LED_SENSOR
-      digitalWrite(LED_SENSOR_PIN, HIGH);
-      delay(100);
-      digitalWrite(LED_SENSOR_PIN, LOW);
-      // enviar estado al ESP32-CAM
-      Serial2.print("LIVES:");
-      Serial2.println(lives);
-      Serial2.flush();
-
-      // si vidas llegan a 0, prender láser permanentemente
-      if (lives == 0) {
-        ledcWrite(0, 255); // láser encendido permanentemente
-        Serial.println("Vidas 0: Láser encendido");
-      }
-    }
-  } else {
-    // no hay impacto: mantener LED apagado si aún hay vidas
-    if (lives > 0) digitalWrite(LED_SENSOR_PIN, LOW);
-  }
-
-  
-  int raw6 = analogRead(LDR_PIN6);
-  float voltage6 = (raw6 * VREF) / ADC_RES;
-
-  Serial.print("Voltaje LDR: ");
-  Serial.println(voltage6, 3);
-
-  
-  unsigned long now6 = millis();
-  if (voltage6 > 1 && lives > 0) {
-   if (now6 - lastLifeReductionTime >= lifeReductionInterval) {
-      // reducir vida
-      lives--;
-      lastLifeReductionTime = now6;
-      // indicar impacto con LED_SENSOR
-      digitalWrite(LED_SENSOR_PIN, HIGH);
-      delay(100);
-      digitalWrite(LED_SENSOR_PIN, LOW);
-      // enviar estado al ESP32-CAM
-      Serial2.print("LIVES:");
-      Serial2.println(lives);
-      Serial2.flush();
-
-      // si vidas llegan a 0, prender láser permanentemente
-      if (lives == 0) {
-        ledcWrite(0, 255); // láser encendido permanentemente
-        Serial.println("Vidas 0: Láser encendido");
-      }
-    }
-  } else {
-    // no hay impacto: mantener LED apagado si aún hay vidas
-    if (lives > 0) digitalWrite(LED_SENSOR_PIN, LOW);
-  }
-
-  
 
   delay(100);
 }
+
 
 
