@@ -11,8 +11,8 @@ const char* ssid = "iPhone Fede";
 const char* password = "federico";
 
 // ---------- COMUNICACIÓN SERIAL ----------
-#define RXD2 14  // RX del ESP32-CAM conectado al TX (17) del ESP32 Normal
-#define TXD2 15  // TX del ESP32-CAM conectado al RX (16) del ESP32 Normal
+#define RXD2 14
+#define TXD2 15
 
 // ---------- PINES DE CÁMARA (AI Thinker) ----------
 #define PWDN_GPIO_NUM     32
@@ -33,8 +33,8 @@ const char* password = "federico";
 #define PCLK_GPIO_NUM     22
 
 // ---------- VARIABLES DE ESTADO ----------
-int currentLives = 3;
-int currentShots = 40;
+int shotsReceived = 0;      // TIROS RECIBIDOS
+int shotsRemaining = 40;    // DISPAROS RESTANTES
 String lastSerialLine = "";
 
 httpd_handle_t stream_httpd = NULL;
@@ -72,7 +72,7 @@ h1 { color: #ff4444; }
   <button id="fireButton" class="fire-button" onclick="fire()"> DISPARAR</button>
   <p id="status">Listo para disparar</p>
   <p id="shots">Disparos restantes: 40</p>
-  <p id="lives">Vidas restantes: 3</p>
+  <p id="hits">Tiros recibidos: 0</p>
 
   <div class="move-pad">
     <button class="move-btn" onclick="moveCmd('FWD')">Izquierda</button>
@@ -87,81 +87,54 @@ document.getElementById('stream').src = 'http://' + location.hostname + ':81/str
 
 function fire() {
   const status = document.getElementById('status');
-  const shotsDisplay = document.getElementById('shots');
-  const livesDisplay = document.getElementById('lives');
-  const fireButton = document.getElementById('fireButton');
   status.innerText = "Disparando...";
 
-  fetch('/fire?t=' + Date.now(), { method: 'GET', cache: 'no-store' })
-    .then(response => { if (!response.ok) throw new Error('Error en la solicitud'); return response.text(); })
+  fetch('/fire?t=' + Date.now())
+    .then(r => r.text())
     .then(data => {
-      console.log("FIRE resp:", data);
       const parts = data.split('|');
-      let lives = 0;
       let shots = 0;
+      let hits = 0;
+
       for (let part of parts) {
         part = part.trim();
-        if (part.startsWith('LIVES:')) lives = parseInt(part.split(':')[1]);
         if (part.startsWith('SHOTS:')) shots = parseInt(part.split(':')[1]);
+        if (part.startsWith('SHOTS_TAKEN:')) hits = parseInt(part.split(':')[1]);
       }
 
-      if (lives > 0) document.getElementById('lives').innerText = 'Vidas restantes: ' + lives;
-      if (shots >= 0) document.getElementById('shots').innerText = 'Disparos restantes: ' + shots;
+      document.getElementById('shots').innerText = 'Disparos restantes: ' + shots;
+      document.getElementById('hits').innerText = 'Tiros recibidos: ' + hits;
 
-      if (lives <= 0) {
-        fireButton.disabled = true;
-        status.innerText = "¡Se te acabaron las vidas!";
-      } else if (shots <= 0) {
-        fireButton.disabled = true;
-        status.innerText = "¡Sin balas! No puedes disparar más.";
+      if (shots <= 0) {
+        document.getElementById('fireButton').disabled = true;
+        status.innerText = "¡Sin balas!";
       } else {
-        fireButton.disabled = false;
         status.innerText = "Disparo realizado";
       }
-    })
-    .catch(error => {
-      console.error('Error:', error);
-      status.innerText = "Error al disparar";
     });
 }
 
 function moveCmd(cmd) {
-  fetch('/move?cmd=' + encodeURIComponent(cmd) + '&t=' + Date.now(), { method: 'GET', cache: 'no-store' })
-    .then(r => r.text())
-    .then(txt => console.log('MOVE resp:', txt))
-    .catch(e => console.error(e));
+  fetch('/move?cmd=' + encodeURIComponent(cmd) + '&t=' + Date.now());
 }
 
 function updateStatus() {
-  const shotsDisplay = document.getElementById('shots');
-  const livesDisplay = document.getElementById('lives');
-  const fireButton = document.getElementById('fireButton');
-  const status = document.getElementById('status');
-
-  fetch('/status?t=' + Date.now(), { method: 'GET', cache: 'no-store' })
+  fetch('/status?t=' + Date.now())
     .then(r => r.text())
     .then(data => {
       const parts = data.split('|');
-      let lives = 0, shots = 0;
-      if (parts.length >= 2) {
-        lives = parseInt(parts[0].split(':')[1]);
-        shots = parseInt(parts[1].split(':')[1]);
-      }
-      livesDisplay.innerText = 'Vidas restantes: ' + lives;
-      shotsDisplay.innerText = 'Disparos restantes: ' + shots;
+      let shots = parseInt(parts[0].split(':')[1]);
+      let hits = parseInt(parts[1].split(':')[1]);
 
-      if (lives === 0) {
-        fireButton.disabled = true;
-        status.innerText = "¡Se te acabaron las vidas!";
-      } else if (shots === 0) {
-        fireButton.disabled = true;
-        status.innerText = "¡Sin balas! No puedes disparar más.";
+      document.getElementById('shots').innerText = 'Disparos restantes: ' + shots;
+      document.getElementById('hits').innerText = 'Tiros recibidos: ' + hits;
+
+      if (shots <= 0) {
+        document.getElementById('fireButton').disabled = true;
       } else {
-        fireButton.disabled = false;
-        status.innerText = "Listo para disparar";
+        document.getElementById('fireButton').disabled = false;
       }
-    })
-    .catch(err => console.log('Status poll error', err));
+    });
 }
 
 setInterval(updateStatus, 1000);
@@ -191,7 +164,6 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
-  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
   return httpd_resp_send(req, (const char *)INDEX_HTML, strlen(INDEX_HTML));
 }
 
@@ -212,28 +184,30 @@ static esp_err_t fire_handler(httpd_req_t *req) {
       if (response.length() > 0) response += "|";
       response += line;
 
-      if (line.startsWith("SHOTS:")) currentShots = line.substring(6).toInt();
-      else if (line.startsWith("LIVES:")) currentLives = line.substring(6).toInt();
-      else if (line == "NO_SHOTS") currentShots = 0;
+      if (line.startsWith("SHOTS:"))
+        shotsRemaining = line.substring(6).toInt();
+
+      else if (line.startsWith("SHOTS_TAKEN:"))
+        shotsReceived = line.substring(12).toInt();
+
+      else if (line == "NO_SHOTS")
+        shotsRemaining = 0;
     }
     delay(1);
   }
 
-  // Si no se recibió respuesta, devolver estado actual
   if (response.length() == 0) {
-    response = String("LIVES:") + currentLives + "|SHOTS:" + currentShots;
+    response = String("SHOTS:") + shotsRemaining + "|SHOTS_TAKEN:" + shotsReceived;
   }
 
   httpd_resp_set_type(req, "text/plain");
-  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
   return httpd_resp_send(req, response.c_str(), response.length());
 }
 
 static esp_err_t status_handler(httpd_req_t *req) {
   char buf[64];
-  int len = snprintf(buf, sizeof(buf), "LIVES:%d|SHOTS:%d", currentLives, currentShots);
+  int len = snprintf(buf, sizeof(buf), "SHOTS:%d|SHOTS_TAKEN:%d", shotsRemaining, shotsReceived);
   httpd_resp_set_type(req, "text/plain");
-  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
   return httpd_resp_send(req, buf, len);
 }
 
@@ -246,6 +220,7 @@ static esp_err_t move_handler(httpd_req_t *req) {
 
   int v1 = 0, v2 = 0;
   const int MAXV = 255;
+
   if (strcmp(cmd, "FWD") == 0) { v1 = MAXV; v2 = MAXV; }
   else if (strcmp(cmd, "BACK") == 0) { v1 = -MAXV; v2 = -MAXV; }
   else if (strcmp(cmd, "RIGHT") == 0) { v1 = MAXV; v2 = -MAXV; }
@@ -255,9 +230,10 @@ static esp_err_t move_handler(httpd_req_t *req) {
   Serial2.printf("M2:%d\n", v2);
   Serial2.flush();
 
-  int len = snprintf(buf, sizeof(buf), "MOVE:%s|M1:%d|M2:%d", cmd, v1, v2);
+  int len = snprintf(buf, sizeof(buf),
+                     "MOVE:%s|M1:%d|M2:%d", cmd, v1, v2);
+
   httpd_resp_set_type(req, "text/plain");
-  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
   return httpd_resp_send(req, buf, len);
 }
 
@@ -265,7 +241,6 @@ void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
   config.max_uri_handlers = 16;
-  config.lru_purge_enable = true;
 
   httpd_uri_t index_uri = { .uri = "/", .method = HTTP_GET, .handler = index_handler };
   httpd_uri_t fire_uri = { .uri = "/fire", .method = HTTP_GET, .handler = fire_handler };
@@ -282,6 +257,7 @@ void startCameraServer() {
   config.server_port += 1;
   config.ctrl_port += 1;
   httpd_uri_t stream_uri = { .uri = "/stream", .method = HTTP_GET, .handler = stream_handler };
+
   if (httpd_start(&stream_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
   }
@@ -321,10 +297,8 @@ void setup() {
     return;
   }
 
-  // --- ROTAR IMAGEN 180 GRADOS ---
   sensor_t * s = esp_camera_sensor_get();
-  s->set_vflip(s, 1);     // Voltea la imagen verticalmente (rotación 180°)
-  // s->set_hmirror(s, 1); // (Opcional) Voltea la imagen horizontalmente
+  s->set_vflip(s, 1);
 
   WiFi.begin(ssid, password);
   Serial.print("Conectando a WiFi");
@@ -343,14 +317,16 @@ void loop() {
   while (Serial2.available()) {
     String line = Serial2.readStringUntil('\n');
     line.trim();
-    if (line.startsWith("LIVES:")) currentLives = line.substring(6).toInt();
-    else if (line.startsWith("SHOTS:")) currentShots = line.substring(6).toInt();
+
+    if (line.startsWith("SHOTS:"))
+      shotsRemaining = line.substring(6).toInt();
+
+    else if (line.startsWith("SHOTS_TAKEN:"))
+      shotsReceived = line.substring(12).toInt();
   }
+
   delay(5);
 }
-
-
-
 
 
 
