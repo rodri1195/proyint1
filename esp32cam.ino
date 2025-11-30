@@ -59,27 +59,55 @@ h1 { color: #ff4444; }
 }
 .fire-button:hover { background: linear-gradient(145deg,#ff5555,#ee0000); }
 .fire-button:disabled { background: #555; cursor: not-allowed; }
-.move-pad { margin-top:18px; display:flex; justify-content:center; gap:12px; flex-wrap:wrap; }
-.move-btn { width:120px; height:56px; font-size:18px; border-radius:10px; border:none; cursor:pointer; background:#2a2a2a; color:#fff; }
-.move-btn:active { transform:translateY(2px); }
+
+.move-pad {
+  margin: 18px auto 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 70px);
+  grid-template-rows: repeat(3, 70px);
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+}
+.move-btn {
+  width: 70px;
+  height: 70px;
+  font-size: 24px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  background: #2a2a2a;
+  color: #fff;
+}
+.move-btn:active { transform: translateY(2px); }
 .stop-all { background:#880000; color:#fff; }
+.placeholder {
+  visibility: hidden;
+}
 </style>
 </head>
 <body>
   <h1> Control de Láser y Motores</h1>
   <img id="stream" src="">
   <br>
-  <button id="fireButton" class="fire-button" onclick="fire()"> DISPARAR</button>
+  <button id="fireButton" class="fire-button" onclick="fire()">DISPARAR</button>
   <p id="status">Listo para disparar</p>
   <p id="shots">Disparos restantes: 40</p>
   <p id="hits">Tiros recibidos: 0</p>
 
+  <!-- Cruceta tipo joystick -->
   <div class="move-pad">
-    <button class="move-btn" onclick="moveCmd('FWD')">Izquierda</button>
-    <button class="move-btn" onclick="moveCmd('LEFT')">Atras</button>
-    <button class="move-btn" onclick="moveCmd('RIGHT')">Adelante</button>
-    <button class="move-btn" onclick="moveCmd('BACK')">Derecha</button>
-    <button class="move-btn stop-all" onclick="moveCmd('STOP')">Detener</button>
+    <button class="move-btn placeholder"></button>
+    <button class="move-btn" onclick="moveCmd('RIGHT')">↑</button>
+    <button class="move-btn placeholder"></button>
+
+    <button class="move-btn" onclick="moveCmd('FWD')">←</button>
+    <button class="move-btn stop-all" onclick="moveCmd('STOP')">■</button>
+    <button class="move-btn" onclick="moveCmd('BACK')">→</button>
+
+    <button class="move-btn placeholder"></button>
+    <button class="move-btn" onclick="moveCmd('LEFT')">↓</button>
+    <button class="move-btn placeholder"></button>
   </div>
 
 <script>
@@ -299,6 +327,7 @@ void setup() {
 
   sensor_t * s = esp_camera_sensor_get();
   s->set_vflip(s, 1);
+  s->set_hmirror(s, 1);   // prueba así; si ves que queda peor, probá con 0
 
   WiFi.begin(ssid, password);
   Serial.print("Conectando a WiFi");
@@ -327,9 +356,6 @@ void loop() {
 
   delay(5);
 }
-
-
-
 
 
 
